@@ -40,8 +40,12 @@ def gerar_moveis(quantidade):
 
 moveis_destrutiveis = gerar_moveis(5) # Spawna 5 móveis pela casa
 
-# Função para fatiar o sprite sheet
-def carregar_sprites(caminho, colunas, linhas):
+# Função para fatiar o sprite sheet - ATUALIZADA!
+def carregar_sprites(caminho, colunas, linhas, fatiar_cheio=False):
+    """
+    Carrega e fatia um spritesheet.
+    'fatiar_cheio' define se corta o topo (padrão) ou fatia o frame inteiro (para rotação).
+    """
     # Carrega a imagem principal
     sheet = pygame.image.load(caminho).convert_alpha()
     
@@ -53,15 +57,31 @@ def carregar_sprites(caminho, colunas, linhas):
     for linha in range(linhas):
         linha_frames = []
         for coluna in range(colunas):
-            # Calcula a posição X e Y do corte
+            
+            # Calcula a posição X do corte
             x = coluna * frame_largura
-            y = linha * frame_altura
             
-            # Recorta aquele quadradinho específico
-            rect = pygame.Rect(x, y, frame_largura, frame_altura)
-            imagem_frame = sheet.subsurface(rect)
+            if fatiar_cheio:
+                # ==========================================
+                # O SEGREDO DO CORTE INTEIRO (Para Fase 4)
+                # Fatia o frame inteiro, sem corte no topo. Preserva o giro.
+                # ==========================================
+                y = linha * frame_altura
+                rect = pygame.Rect(x, y, frame_largura, frame_altura)
+            else:
+                # ==========================================
+                # O SEGREDO DO CORTE ANTI-SUJEIRA (Fases 1, 2, 3)
+                # Vamos ignorar os 15 primeiros pixels do topo de cada frame.
+                # ==========================================
+                corte_topo = 15 
+                y = (linha * frame_altura) + corte_topo
+                # Recorta descontando o pedaço que pulamos no topo
+                rect = pygame.Rect(x, y, frame_largura, frame_altura - corte_topo)
             
-            # Pega a cor do primeiro pixel (0,0) e a torna transparente (tira o fundo preto/branco)
+            # O .copy() é crucial aqui para gerar uma imagem independente e limpa
+            imagem_frame = sheet.subsurface(rect).copy()
+            
+            # Pega a cor do primeiro pixel (0,0) e a torna transparente
             cor_fundo = imagem_frame.get_at((0, 0))
             imagem_frame.set_colorkey(cor_fundo)
             
@@ -77,11 +97,12 @@ animacoes_gato_magro = carregar_sprites("assets/sprites/gato_primeira_fase.jpg",
 animacoes_gato_gordinho = carregar_sprites("assets/sprites/gato_segunda_fase.jpg", 3, 4)
 animacoes_gato_obeso = carregar_sprites("assets/sprites/gato_terceira_fase.jpg", 3, 4)
 
-# Carrega e fatia a imagem da Bolota rolando (Fase 4)
-# Como é uma bolota rolando, pegamos apenas o primeiro frame (ele já é redondo)
-animacoes_bolota = carregar_sprites("assets/sprites/gato_quarta_fase.png", 3, 4)
-imagem_bolota = animacoes_bolota[0][0]
-imagem_bolota.set_colorkey((255, 255, 255)) # Remove o fundo branco se houver
+# ==========================================
+# Carregamento do Asset da Fase 4 (NOVO MÉTODO)
+# ==========================================
+# Carrega apenas UMA imagem do gato gordo para a fase BOLOTA
+imagem_bolota_base = pygame.image.load("assets/sprites/gato03.png").convert_alpha()
+velocidade_giro = 15 # Define a velocidade que ele vai rolar
 
 # Carrega a foto de vocês para o final
 foto_casal = pygame.image.load("assets/sprites/foto_casal.jpg").convert()
@@ -124,7 +145,7 @@ while True:
         if teclas[pygame.K_RETURN]:
             estado_jogo = "JOGANDO"
 
-# ==========================================
+    # ==========================================
     # ESTADO 1: O CAOS COMEÇA (JOGANDO)
     # ==========================================
     elif estado_jogo == "JOGANDO":
@@ -158,19 +179,15 @@ while True:
             # Se não estiver andando, volta para o frame 0 (parado)
             frame_atual = 0
 
-        # ==========================================
         # LÓGICA DE COLISÃO E CRESCIMENTO
-        # ==========================================
-        # 1. Cria o hitbox invisível do gato acompanhando a posição dele
         hitbox_gato = pygame.Rect(gato_x, gato_y, tamanho_gato, tamanho_gato)
 
-        # 2. Verifica se o hitbox do gato se sobrepôs ao hitbox da comida
         if hitbox_gato.colliderect(comida):
-            score += 10              # Aumenta a pontuação
-            tamanho_gato += 2        # O gato começa a engordar visualmente!
-            comida = gerar_comida()  # Reposiciona a comida na tela
+            score += 10
+            tamanho_gato += 2
+            comida = gerar_comida()
             
-            # Transição APÓS 1 COMIDA (Tamanho inicial é 30, vai para 32)
+            # Transição APÓS 1 COMIDA
             if tamanho_gato >= 32:
                 estado_jogo = "GORDINHO"
                 velocidade = 4
@@ -178,11 +195,18 @@ while True:
         pygame.draw.rect(tela, config.COR_COMIDA, comida)
         
         imagem_atual = animacoes_gato_magro[direcao_atual][frame_atual]
-        # Faz a imagem inchar e engordar em tempo real baseada no tamanho_gato!
-        imagem_atual = pygame.transform.scale(imagem_atual, (tamanho_gato * 2, tamanho_gato * 2))
         
-        pos_x = gato_x - (imagem_atual.get_width() // 4)
-        pos_y = gato_y - (imagem_atual.get_height() // 4)
+        # ==========================================
+        # LIFTING VISUAL (CORRIGIDO)
+        # ==========================================
+        proporcao = imagem_atual.get_width() / imagem_atual.get_height()
+        nova_altura = int(tamanho_gato * 2) 
+        nova_largura = int(nova_altura * proporcao)
+        imagem_atual = pygame.transform.scale(imagem_atual, (nova_largura, nova_altura))
+        
+        # Centraliza o gato no hitbox invisível
+        pos_x = gato_x + (tamanho_gato // 2) - (nova_largura // 2)
+        pos_y = gato_y + (tamanho_gato // 2) - (nova_altura // 2)
         tela.blit(imagem_atual, (pos_x, pos_y))
 
     # ==========================================
@@ -222,10 +246,15 @@ while True:
         pygame.draw.rect(tela, config.COR_COMIDA, comida)
         
         imagem_atual = animacoes_gato_gordinho[direcao_atual][frame_atual] 
-        imagem_atual = pygame.transform.scale(imagem_atual, (tamanho_gato * 2, tamanho_gato * 2))
         
-        pos_x = gato_x - (imagem_atual.get_width() // 4)
-        pos_y = gato_y - (imagem_atual.get_height() // 4)
+        # LIFTING VISUAL (CORRIGIDO)
+        proporcao = imagem_atual.get_width() / imagem_atual.get_height()
+        nova_altura = int(tamanho_gato * 2) 
+        nova_largura = int(nova_altura * proporcao)
+        imagem_atual = pygame.transform.scale(imagem_atual, (nova_largura, nova_altura))
+        
+        pos_x = gato_x + (tamanho_gato // 2) - (nova_largura // 2)
+        pos_y = gato_y + (tamanho_gato // 2) - (nova_altura // 2)
         tela.blit(imagem_atual, (pos_x, pos_y))
 
     # ==========================================
@@ -234,10 +263,11 @@ while True:
     elif estado_jogo == "OBESO":
         andando = False
         
+        # --- Ajuste das direções invertidas ---
         if teclas[pygame.K_LEFT] or teclas[pygame.K_a]: 
-            gato_x -= velocidade; direcao_atual = 1; andando = True
+            gato_x -= velocidade; direcao_atual = 2; andando = True # Esquerda agora é 2
         elif teclas[pygame.K_RIGHT] or teclas[pygame.K_d]: 
-            gato_x += velocidade; direcao_atual = 2; andando = True
+            gato_x += velocidade; direcao_atual = 1; andando = True # Direita agora é 1
         elif teclas[pygame.K_UP] or teclas[pygame.K_w]: 
             gato_y -= velocidade; direcao_atual = 3; andando = True
         elif teclas[pygame.K_DOWN] or teclas[pygame.K_s]: 
@@ -245,7 +275,7 @@ while True:
 
         if andando:
             contador_animacao += 1
-            if contador_animacao >= 18: # Passos muito pesados e lentos
+            if contador_animacao >= 12: # <-- Diminuído de 18 para 12! Passos mais rápidos
                 frame_atual = (frame_atual + 1) % 3
                 contador_animacao = 0
         else:
@@ -264,46 +294,84 @@ while True:
         pygame.draw.rect(tela, config.COR_COMIDA, comida)
         
         imagem_atual = animacoes_gato_obeso[direcao_atual][frame_atual] 
-        imagem_atual = pygame.transform.scale(imagem_atual, (tamanho_gato * 2, tamanho_gato * 2))
         
-        pos_x = gato_x - (imagem_atual.get_width() // 4)
-        pos_y = gato_y - (imagem_atual.get_height() // 4)
+        # LIFTING VISUAL (CORRIGIDO E CENTRALIZADO)
+        proporcao = imagem_atual.get_width() / imagem_atual.get_height()
+        nova_altura = int(tamanho_gato * 2.2) 
+        nova_largura = int(nova_altura * proporcao)
+        imagem_atual = pygame.transform.scale(imagem_atual, (nova_largura, nova_altura))
+        
+        # Centraliza perfeitamente o gato no hitbox para ele crescer a partir do meio
+        pos_x = gato_x + (tamanho_gato // 2) - (nova_largura // 2)
+        pos_y = gato_y + (tamanho_gato // 2) - (nova_altura // 2)
         tela.blit(imagem_atual, (pos_x, pos_y))
 
     # ==========================================
-    # ESTADO 4: MODO BOLOTA 
+    # === ESTADO 4: BOLOTA (Rotação Nativa Direcional Perfeita) ===
     # ==========================================
     elif estado_jogo == "BOLOTA":
+        andando = False
+        andando_horizontal = False # Flag para prioridade de giro
+        
+        # MOVIMENTAÇÃO E LÓGICA DE GIRO
         if teclas[pygame.K_LEFT] or teclas[pygame.K_a]: 
-            gato_x -= velocidade; angulo_rotacao += 10
-        if teclas[pygame.K_RIGHT] or teclas[pygame.K_d]: 
-            gato_x += velocidade; angulo_rotacao -= 10
-        if teclas[pygame.K_UP] or teclas[pygame.K_w]: 
-            gato_y -= velocidade; angulo_rotacao += 10
-        if teclas[pygame.K_DOWN] or teclas[pygame.K_s]: 
-            gato_y += velocidade; angulo_rotacao -= 10
+            gato_x -= velocidade
+            andando = True
+            andando_horizontal = True
+            # === GIRAR PARA ESQUERDA ===
+            # Incrementa o ângulo (anti-horário)
+            angulo_rotacao += velocidade_giro
+            
+        elif teclas[pygame.K_RIGHT] or teclas[pygame.K_d]: 
+            gato_x += velocidade
+            andando = True
+            andando_horizontal = True
+            # === GIRAR PARA DIREITA ===
+            # Decrementa o ângulo (horário)
+            angulo_rotacao -= velocidade_giro
+
+        # Se não estiver andando para os lados, mas estiver subindo/descendo, 
+        # ele continua girando (vamos manter o giro anti-horário padrão aqui)
+        if not andando_horizontal:
+            if teclas[pygame.K_UP] or teclas[pygame.K_w]: 
+                gato_y -= velocidade; andando = True; angulo_rotacao += velocidade_giro
+            elif teclas[pygame.K_DOWN] or teclas[pygame.K_s]: 
+                gato_y += velocidade; andando = True; angulo_rotacao += velocidade_giro
+
+        # Mantém o ângulo entre 0 e 359
+        if angulo_rotacao >= 360: angulo_rotacao -= 360
+        if angulo_rotacao < 0: angulo_rotacao += 360
 
         # Lógica de Colisão com Móveis
         hitbox_bolota = pygame.Rect(gato_x, gato_y, tamanho_gato, tamanho_gato)
-        for movel in moveis_destrutiveis[:]: # Copia a lista para remover itens com segurança
+        for movel in moveis_destrutiveis[:]: 
             if hitbox_bolota.colliderect(movel):
-                moveis_destrutiveis.remove(movel) # O móvel é esmagado!
+                moveis_destrutiveis.remove(movel)
                 score += 50
-                velocidade += 1 # Ele gira/anda mais rápido a cada móvel destruído!
+                velocidade += 1 
                 
         # Desenha os Móveis restantes
         for movel in moveis_destrutiveis:
-            pygame.draw.rect(tela, (139, 69, 19), movel) # Cor de madeira (Marrom)
+            pygame.draw.rect(tela, (139, 69, 19), movel) 
 
         # ==========================================
-        # DESENHO DO GATO BOLOTA (A ESFERA)
+        # DESENHO DA BOLOTA GIRANDO CENTRALIZADA
         # ==========================================
-        # Redimensiona a imagem_bolota para o tamanho gigante atual do gato
-        bolota_escala = pygame.transform.scale(imagem_bolota, (tamanho_gato * 2, tamanho_gato * 2))
+        proporcao = imagem_bolota_base.get_width() / imagem_bolota_base.get_height()
+        nova_altura = int(tamanho_gato * 2.2) # Escala proporcional da fase bolota
+        nova_largura = int(nova_altura * proporcao)
+        imagem_escalada = pygame.transform.scale(imagem_bolota_base, (nova_largura, nova_altura))
         
-        gato_rotacionado = pygame.transform.rotate(bolota_escala, angulo_rotacao)
-        rect_rotacionado = gato_rotacionado.get_rect(center=(gato_x + tamanho_gato//2, gato_y + tamanho_gato//2))
-        tela.blit(gato_rotacionado, rect_rotacionado.topleft)
+        # Gira a imagem redimensionada
+        imagem_girada = pygame.transform.rotate(imagem_escalada, angulo_rotacao)
+        
+        # Centraliza exatamente no hitbox invisível do gato
+        centro_x = gato_x + (tamanho_gato // 2)
+        centro_y = gato_y + (tamanho_gato // 2)
+        rect_girado = imagem_girada.get_rect(center=(centro_x, centro_y))
+        
+        # Desenha na tela!
+        tela.blit(imagem_girada, rect_girado.topleft)
 
         texto_alerta = fonte.render("ALERTA: MASSA CRÍTICA! [Aperte ESPAÇO para quebrar tudo]", True, config.COR_TEXTO)
         tela.blit(texto_alerta, (20, 20))
