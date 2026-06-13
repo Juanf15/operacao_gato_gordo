@@ -9,6 +9,11 @@ tela = pygame.display.set_mode((config.LARGURA, config.ALTURA))
 pygame.display.set_caption("Operação Gato Gordo 🐱")
 relogio = pygame.time.Clock()
 
+
+# --- NOVO: Variáveis para o Flash ---
+tempo_inicio_flash = 0
+duracao_flash = 2500  # Aumentado para 2.5 segundos para o efeito Flashbang completo
+
 # FONTES DO JOGO
 fonte_titulo = pygame.font.Font(None, 72) 
 fonte = pygame.font.Font(None, 36)
@@ -17,17 +22,35 @@ fonte_pequena = pygame.font.Font(None, 28)
 # ==========================================
 # CARREGANDO OS EFEITOS SONOROS E MÚSICA
 # ==========================================
+
+# 1. Som de Destruição
 try:
     som_destruicao = pygame.mixer.Sound("assets/sounds/destruicao.wav")
     som_destruicao.set_volume(0.7)
-except: pass 
+except Exception as e:
+    print(f"Aviso: Não achou destruicao.wav - {e}")
+
+# 2. Som do Flashbang
+try:
+    som_flashbang = pygame.mixer.Sound("assets/sounds/flashbang.wav")
+    som_flashbang.set_volume(1.0)
+except Exception as e:
+    print(f"Aviso: Não achou flashbang.wav - {e}")
+
+# 3. Música de Fundo
+try:
+    pygame.mixer.music.load("assets/sounds/musica_fundo.mp3") 
+    pygame.mixer.music.set_volume(0.4) 
+    pygame.mixer.music.play(-1) 
+except Exception as e:
+    print(f"Aviso: Não achou musica_fundo.mp3 - {e}")
 
 # ==========================================
 # CARREGANDO AS TEXTURAS (SPRITES)
 # ==========================================
-# --- NOVO: SACHÊ AUMENTADO PARA 80x80! ---
+# --- NOVO: ATUM AUMENTADO E RETANGULAR (120x90) ---
 img_comida = pygame.image.load("assets/sprites/sache.png").convert_alpha()
-img_comida = pygame.transform.scale(img_comida, (80, 80)) # Aumentado de 60 para 80
+img_comida = pygame.transform.scale(img_comida, (120, 90)) # Ajustado para não perder legibilidade
 
 img_sofa = pygame.image.load("assets/sprites/sofa.png").convert_alpha()
 img_sofa = pygame.transform.scale(img_sofa, (240, 120)) 
@@ -35,11 +58,17 @@ img_sofa = pygame.transform.scale(img_sofa, (240, 120))
 img_mesa = pygame.image.load("assets/sprites/mesa.png").convert_alpha()
 img_mesa = pygame.transform.scale(img_mesa, (160, 120)) 
 
-img_cadeira = pygame.image.load("assets/sprites/cadeira.png").convert_alpha()
-img_cadeira = pygame.transform.scale(img_cadeira, (80, 80)) 
+# Cadeira da Esquerda
+img_cadeira_esq = pygame.image.load("assets/sprites/cadeira_esquerda.png").convert_alpha()
+img_cadeira_esq = pygame.transform.scale(img_cadeira_esq, (100, 100)) # Mudou para 100, 100
+
+# Cadeira da Direita
+img_cadeira_dir = pygame.image.load("assets/sprites/cadeira_direita.png").convert_alpha()
+img_cadeira_dir = pygame.transform.scale(img_cadeira_dir, (100, 100)) # Mudou para 100, 100
 
 img_tv = pygame.image.load("assets/sprites/tv.png").convert_alpha()
-img_tv = pygame.transform.scale(img_tv, (200, 80)) 
+# Aumentamos a altura de 80 para 160
+img_tv = pygame.transform.scale(img_tv, (200, 160))
 
 img_planta = pygame.image.load("assets/sprites/planta.png").convert_alpha()
 img_planta = pygame.transform.scale(img_planta, (80, 80)) 
@@ -49,6 +78,7 @@ estado_jogo = "MENU"
 score = 0
 angulo_rotacao = 0
 mensagem_sistema = ""
+comidas_comidas = 0 # --- NOVO: Contador de quantas vezes o gato comeu ---
 
 # Variáveis do Gato
 tamanho_gato = 30
@@ -61,13 +91,15 @@ velocidade = 5
 def gerar_moveis():
     moveis = []
     # (Rect(x, y, largura, altura), Textura_Imagem)
-    moveis.append((pygame.Rect(100, 150, 240, 120), img_sofa))    # Sofá
+    moveis.append((pygame.Rect(100, 190, 240, 120), img_sofa))    # Sofá movido para baixo!
     moveis.append((pygame.Rect(400, 300, 160, 120), img_mesa))    # Mesa
     
-    moveis.append((pygame.Rect(300, 320, 80, 80), img_cadeira))  # Cadeira 1 Esquerda
-    moveis.append((pygame.Rect(580, 320, 80, 80), img_cadeira))  # Cadeira 2 Direita
+# Agora cada uma recebe a sua imagem específica
+    moveis.append((pygame.Rect(290, 310, 100, 100), img_cadeira_esq))  # Cadeira 1 Esquerda
+    moveis.append((pygame.Rect(570, 310, 100, 100), img_cadeira_dir))  # Cadeira 2 Direita
     
-    moveis.append((pygame.Rect(550, 80, 200, 80), img_tv))      # TV/Estante
+    # Aumentamos o último número (altura) de 80 para 160
+    moveis.append((pygame.Rect(550, 80, 200, 160), img_tv))      # TV/Estante
     
     # Vasos de Planta (80x80)
     moveis.append((pygame.Rect(30, 40, 80, 80), img_planta))       # Planta Topo Esquerda
@@ -83,11 +115,11 @@ moveis_voando = []
 # ==========================================
 def gerar_comida():
     while True:
-        # --- NOVO: Hitbox físico agora é 80x80 para combinar com a imagem ---
+        # --- Hitbox físico atualizado para o tamanho retangular (120x90) ---
         novo_rect = pygame.Rect(
-            random.randint(0, config.LARGURA - 80), 
-            random.randint(50, config.ALTURA - 80), 
-            80, 80 # Tamanho físico igual ao visual
+            random.randint(0, config.LARGURA - 120), 
+            random.randint(50, config.ALTURA - 90), 
+            120, 90 # Nova Largura e Altura
         )
         colidiu = False
         for movel in moveis_destrutiveis:
@@ -200,7 +232,7 @@ while True:
         pygame.draw.rect(tela, config.COR_CAIXA, (caixa_x, caixa_y, caixa_largura, caixa_altura))
         pygame.draw.rect(tela, config.COR_TEXTO, (caixa_x, caixa_y, caixa_largura, caixa_altura), 3)
 
-        texto_fala = fonte.render("Vocês: 'Bom, vamos sair. Coma a sua comida, se comporte.'", True, config.COR_TEXTO)
+        texto_fala = fonte.render("Vocês: 'Vamos sair. Coma a sua ração e se comporte!'", True, config.COR_TEXTO)
         texto_dica = fonte.render("[Pressione ESPAÇO para fechar a porta]", True, (150, 150, 150))
         
         tela.blit(texto_fala, (caixa_x + 20, caixa_y + 20))
@@ -208,7 +240,7 @@ while True:
 
         if teclas[pygame.K_SPACE]: 
             estado_jogo = "JOGANDO"
-            mensagem_sistema = "Objetivo: Coma a sua comida."
+            mensagem_sistema = "OBJETIVO: coma sua ração"
 
     # ==========================================
     # ESTADO 1: JOGANDO
@@ -249,12 +281,17 @@ while True:
         if hitbox_gato.colliderect(comida):
             score += 10
             tamanho_gato += 2
+            comidas_comidas += 1 # Aumenta o contador!
             comida = gerar_comida()
             
-            if tamanho_gato >= 32:
+            if comidas_comidas == 1:
+                mensagem_sistema = "não é o suficiente, coma mais,"
+            elif comidas_comidas == 2:
+                mensagem_sistema = "Ainda não é o bastante, coma mais"
+            elif comidas_comidas == 3:
                 estado_jogo = "GORDINHO"
                 velocidade = 4
-                mensagem_sistema = "Isso não é o suficiente. Coma mais!" 
+                mensagem_sistema = "Você ganhou uns quilinhos, mas a fome é imparável, coma mais"
 
         # Desenha a imagem do sachê
         tela.blit(img_comida, comida.topleft)
@@ -307,12 +344,15 @@ while True:
         if hitbox_gato.colliderect(comida):
             score += 15 
             tamanho_gato += 2
+            comidas_comidas += 1
             comida = gerar_comida()
             
-            if tamanho_gato >= 34:
+            if comidas_comidas == 4:
+                mensagem_sistema = "CONSUMA MAIS"
+            elif comidas_comidas == 5:
                 estado_jogo = "OBESO"
                 velocidade = 2 
-                mensagem_sistema = "Coma MAIS E MAIS!" 
+                mensagem_sistema = "COMA MAIS, MAIS, MAIS E MAIS"
 
         tela.blit(img_comida, comida.topleft)
         
@@ -364,12 +404,13 @@ while True:
         if hitbox_gato.colliderect(comida):
             score += 20 
             tamanho_gato += 2
+            comidas_comidas += 1
             comida = gerar_comida()
             
-            if tamanho_gato >= 36:
+            if comidas_comidas == 6:
                 estado_jogo = "BOLOTA"
                 velocidade = 6 
-                mensagem_sistema = "MASSA CRÍTICA! Obliteração da casa ativada." 
+                mensagem_sistema = "DESTRUA TUDO!!!!!" 
 
         tela.blit(img_comida, comida.topleft)
         
@@ -454,7 +495,14 @@ while True:
                 moveis_voando.remove(voando)
                 
         if len(moveis_destrutiveis) == 0 and len(moveis_voando) == 0:
-            estado_jogo = "CORRUPCAO"
+                    estado_jogo = "FLASH_EXPLOSAO" 
+                    tempo_inicio_flash = pygame.time.get_ticks() 
+                    
+                    # --- NOVO: Toca a granada de luz! ---
+                    try:
+                        som_flashbang.play()
+                    except:
+                        pass
 
         proporcao = imagem_bolota_base.get_width() / imagem_bolota_base.get_height()
         nova_altura = int(tamanho_gato * 2.2) 
@@ -484,6 +532,46 @@ while True:
 
         if teclas[pygame.K_SPACE]:
             estado_jogo = "FIM"
+
+    # ==========================================
+    # --- NOVO ESTADO: FLASH EXPLOSÃO ---
+    # ==========================================
+    elif estado_jogo == "FLASH_EXPLOSAO":
+        tela.blit(fundo_sala, (0, 0))
+        
+        # Mantém o Gato Bolota desenhado no mesmo lugar
+        proporcao = imagem_bolota_base.get_width() / imagem_bolota_base.get_height()
+        nova_altura = int(tamanho_gato * 2.2) 
+        nova_largura = int(nova_altura * proporcao)
+        imagem_escalada = pygame.transform.scale(imagem_bolota_base, (nova_largura, nova_altura))
+        
+        imagem_girada = pygame.transform.rotate(imagem_escalada, angulo_rotacao)
+        centro_x = gato_x + (tamanho_gato // 2)
+        centro_y = gato_y + (tamanho_gato // 2)
+        rect_girado = imagem_girada.get_rect(center=(centro_x, centro_y))
+        tela.blit(imagem_girada, rect_girado.topleft)
+
+        # Lógica do clarão branco
+        tempo_atual = pygame.time.get_ticks()
+        tempo_passado = tempo_atual - tempo_inicio_flash
+
+        if tempo_passado < duracao_flash:
+            # Cria a tela branca de cegueira
+            flash_surf = pygame.Surface((config.LARGURA, config.ALTURA))
+            flash_surf.fill((255, 255, 255))
+            
+            # Matemática do Flashbang: 
+            # Começa no Alpha 255 (totalmente branco/opaco) e vai caindo até 0 (transparente)
+            alpha = int(255 * (1 - (tempo_passado / duracao_flash)))
+            
+            # Impede que o alpha fique negativo (evita travamentos)
+            if alpha < 0: alpha = 0
+                
+            flash_surf.set_alpha(alpha)
+            tela.blit(flash_surf, (0,0))
+        else:
+            # Acabou o flash, a poeira baixa e a realidade quebrou!
+            estado_jogo = "CORRUPCAO"
 
     # ==========================================
     # ESTADO 6: TELA FINAL
