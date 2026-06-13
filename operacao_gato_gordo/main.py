@@ -1,115 +1,152 @@
 import pygame
 import random
 import sys
-import config # Importa nossas constantes!
+import config # Importa as nossas constantes!
 
 # 1. Inicialização do Motor
 pygame.init()
 tela = pygame.display.set_mode((config.LARGURA, config.ALTURA))
 pygame.display.set_caption("Operação Gato Gordo 🐱")
 relogio = pygame.time.Clock()
+
+# FONTES DO JOGO
+fonte_titulo = pygame.font.Font(None, 72) 
 fonte = pygame.font.Font(None, 36)
+fonte_pequena = pygame.font.Font(None, 28) 
+
+# ==========================================
+# CARREGANDO OS EFEITOS SONOROS E MÚSICA
+# ==========================================
+try:
+    som_destruicao = pygame.mixer.Sound("assets/sounds/destruicao.wav")
+    som_destruicao.set_volume(0.7)
+except: pass 
+
+# ==========================================
+# CARREGANDO AS TEXTURAS (SPRITES)
+# ==========================================
+# --- NOVO: SACHÊ AUMENTADO PARA 80x80! ---
+img_comida = pygame.image.load("assets/sprites/sache.png").convert_alpha()
+img_comida = pygame.transform.scale(img_comida, (80, 80)) # Aumentado de 60 para 80
+
+img_sofa = pygame.image.load("assets/sprites/sofa.png").convert_alpha()
+img_sofa = pygame.transform.scale(img_sofa, (240, 120)) 
+
+img_mesa = pygame.image.load("assets/sprites/mesa.png").convert_alpha()
+img_mesa = pygame.transform.scale(img_mesa, (160, 120)) 
+
+img_cadeira = pygame.image.load("assets/sprites/cadeira.png").convert_alpha()
+img_cadeira = pygame.transform.scale(img_cadeira, (80, 80)) 
+
+img_tv = pygame.image.load("assets/sprites/tv.png").convert_alpha()
+img_tv = pygame.transform.scale(img_tv, (200, 80)) 
+
+img_planta = pygame.image.load("assets/sprites/planta.png").convert_alpha()
+img_planta = pygame.transform.scale(img_planta, (80, 80)) 
 
 # 2. Estado Inicial do Jogo
-estado_jogo = "INTRO" # Começa na historinha
+estado_jogo = "MENU" 
 score = 0
 angulo_rotacao = 0
+mensagem_sistema = ""
 
 # Variáveis do Gato
 tamanho_gato = 30
-gato_x, gato_y = config.LARGURA // 2, config.ALTURA // 2
+gato_x, gato_y = (config.LARGURA // 2) - 15, (config.ALTURA // 2) + 150
 velocidade = 5
 
-# Função para spawnar os sachês
-def gerar_comida():
-    return pygame.Rect(
-        random.randint(0, config.LARGURA - 20), 
-        random.randint(0, config.ALTURA - 20), 
-        20, 20
-    )
-
-comida = gerar_comida()
-
-# Móveis para a fase BOLOTA
-def gerar_moveis(quantidade):
+# ==========================================
+# 1. MÓVEIS FIXOS 
+# ==========================================
+def gerar_moveis():
     moveis = []
-    for _ in range(quantidade):
-        # Cria retângulos marrons aleatórios para representar os móveis
-        moveis.append(pygame.Rect(random.randint(50, config.LARGURA - 50), random.randint(50, config.ALTURA - 50), 40, 40))
+    # (Rect(x, y, largura, altura), Textura_Imagem)
+    moveis.append((pygame.Rect(100, 150, 240, 120), img_sofa))    # Sofá
+    moveis.append((pygame.Rect(400, 300, 160, 120), img_mesa))    # Mesa
+    
+    moveis.append((pygame.Rect(300, 320, 80, 80), img_cadeira))  # Cadeira 1 Esquerda
+    moveis.append((pygame.Rect(580, 320, 80, 80), img_cadeira))  # Cadeira 2 Direita
+    
+    moveis.append((pygame.Rect(550, 80, 200, 80), img_tv))      # TV/Estante
+    
+    # Vasos de Planta (80x80)
+    moveis.append((pygame.Rect(30, 40, 80, 80), img_planta))       # Planta Topo Esquerda
+    moveis.append((pygame.Rect(680, 440, 80, 80), img_planta))     # Planta Baixo Direita
+    moveis.append((pygame.Rect(30, 440, 80, 80), img_planta))      # Planta Baixo Esquerda
     return moveis
 
-moveis_destrutiveis = gerar_moveis(5) # Spawna 5 móveis pela casa
+moveis_destrutiveis = gerar_moveis() 
+moveis_voando = [] 
 
-# Função para fatiar o sprite sheet - ATUALIZADA!
+# ==========================================
+# 2. COMIDA (Spawn e Hitbox ajustados para o tamanho novo)
+# ==========================================
+def gerar_comida():
+    while True:
+        # --- NOVO: Hitbox físico agora é 80x80 para combinar com a imagem ---
+        novo_rect = pygame.Rect(
+            random.randint(0, config.LARGURA - 80), 
+            random.randint(50, config.ALTURA - 80), 
+            80, 80 # Tamanho físico igual ao visual
+        )
+        colidiu = False
+        for movel in moveis_destrutiveis:
+            if novo_rect.colliderect(movel[0]):
+                colidiu = True
+                break
+        if not colidiu:
+            return novo_rect
+
+comida = gerar_comida() 
+
+# Função para fatiar o sprite sheet
 def carregar_sprites(caminho, colunas, linhas, fatiar_cheio=False):
-    """
-    Carrega e fatia um spritesheet.
-    'fatiar_cheio' define se corta o topo (padrão) ou fatia o frame inteiro (para rotação).
-    """
-    # Carrega a imagem principal
     sheet = pygame.image.load(caminho).convert_alpha()
-    
-    # Descobre o tamanho exato de cada frame fatiado
     frame_largura = sheet.get_width() // colunas
     frame_altura = sheet.get_height() // linhas
-    
     frames = []
     for linha in range(linhas):
         linha_frames = []
         for coluna in range(colunas):
-            
-            # Calcula a posição X do corte
             x = coluna * frame_largura
-            
             if fatiar_cheio:
-                # ==========================================
-                # O SEGREDO DO CORTE INTEIRO (Para Fase 4)
-                # Fatia o frame inteiro, sem corte no topo. Preserva o giro.
-                # ==========================================
                 y = linha * frame_altura
                 rect = pygame.Rect(x, y, frame_largura, frame_altura)
             else:
-                # ==========================================
-                # O SEGREDO DO CORTE ANTI-SUJEIRA (Fases 1, 2, 3)
-                # Vamos ignorar os 15 primeiros pixels do topo de cada frame.
-                # ==========================================
                 corte_topo = 15 
                 y = (linha * frame_altura) + corte_topo
-                # Recorta descontando o pedaço que pulamos no topo
                 rect = pygame.Rect(x, y, frame_largura, frame_altura - corte_topo)
             
-            # O .copy() é crucial aqui para gerar uma imagem independente e limpa
             imagem_frame = sheet.subsurface(rect).copy()
-            
-            # Pega a cor do primeiro pixel (0,0) e a torna transparente
             cor_fundo = imagem_frame.get_at((0, 0))
             imagem_frame.set_colorkey(cor_fundo)
-            
             linha_frames.append(imagem_frame)
         frames.append(linha_frames)
-        
-    # Retorna uma matriz onde:
-    # frames[0] = Baixo, frames[1] = Esquerda, frames[2] = Direita, frames[3] = Cima
     return frames
 
-# Carrega e fatia as imagens das 4 fases evolutivas do gato!
+# Carrega e fatia as imagens dos gatos
 animacoes_gato_magro = carregar_sprites("assets/sprites/gato_primeira_fase.jpg", 3, 4)
 animacoes_gato_gordinho = carregar_sprites("assets/sprites/gato_segunda_fase.jpg", 3, 4)
 animacoes_gato_obeso = carregar_sprites("assets/sprites/gato_terceira_fase.jpg", 3, 4)
 
-# ==========================================
-# Carregamento do Asset da Fase 4 (NOVO MÉTODO)
-# ==========================================
-# Carrega apenas UMA imagem do gato gordo para a fase BOLOTA
+# Imagem Fase 4
 imagem_bolota_base = pygame.image.load("assets/sprites/gato03.png").convert_alpha()
-velocidade_giro = 15 # Define a velocidade que ele vai rolar
+velocidade_giro = 15 
 
-# Carrega a foto de vocês para o final
+# Foto do casal (Final)
 foto_casal = pygame.image.load("assets/sprites/foto_casal.jpg").convert()
 foto_casal = pygame.transform.scale(foto_casal, (400, 300))
 
+# Sprite do casal (Intro TELA CHEIA)
+sprite_casal = pygame.image.load("assets/sprites/sprite_casal.png").convert() 
+sprite_casal = pygame.transform.scale(sprite_casal, (config.LARGURA, config.ALTURA)) 
+
+# Carregamento do cenário
+fundo_sala = pygame.image.load("assets/sprites/fundo_sala_limpa.png").convert()
+fundo_sala = pygame.transform.scale(fundo_sala, (config.LARGURA, config.ALTURA))
+
 # Variáveis para controlar a animação
-direcao_atual = 0  # Começa olhando para baixo
+direcao_atual = 0  
 frame_atual = 0
 contador_animacao = 0
 
@@ -124,87 +161,110 @@ while True:
     tela.fill(config.COR_FUNDO)
 
     # ==========================================
-    # ESTADO 0: INTRODUÇÃO (A História)
+    # DESENHANDO O CENÁRIO E OBJETOS FIXOS
     # ==========================================
-    if estado_jogo == "INTRO":
-        pygame.draw.rect(tela, config.COR_GATO, (gato_x, gato_y, tamanho_gato, tamanho_gato))
-        pygame.draw.rect(tela, config.COR_COMIDA, comida)
+    if estado_jogo in ["JOGANDO", "GORDINHO", "OBESO", "BOLOTA"]:
+        tela.blit(fundo_sala, (0, 0))
+        
+        for movel in moveis_destrutiveis:
+            tela.blit(movel[1], movel[0].topleft)
 
-        # Caixa de Texto
+    # ==========================================
+    # ESTADO -1: MENU INICIAL
+    # ==========================================
+    if estado_jogo == "MENU":
+        tela.fill((20, 20, 30)) 
+        
+        txt_titulo = fonte_titulo.render("OPERAÇÃO GATO GORDO", True, (255, 215, 0)) 
+        txt_sub = fonte.render("Especial de Dia dos Namorados ❤️", True, (255, 105, 180)) 
+        
+        tela.blit(txt_titulo, (config.LARGURA//2 - txt_titulo.get_width()//2, config.ALTURA//2 - 80))
+        tela.blit(txt_sub, (config.LARGURA//2 - txt_sub.get_width()//2, config.ALTURA//2 - 10))
+
+        if pygame.time.get_ticks() % 1000 < 500:
+            txt_start = fonte.render("[ Pressione ENTER para Começar ]", True, (200, 200, 200))
+            tela.blit(txt_start, (config.LARGURA//2 - txt_start.get_width()//2, config.ALTURA//2 + 80))
+
+        if teclas[pygame.K_RETURN]:
+            estado_jogo = "INTRO"
+
+    # ==========================================
+    # ESTADO 0: INTRODUÇÃO (CUTSCENE TELA CHEIA)
+    # ==========================================
+    elif estado_jogo == "INTRO":
+        tela.blit(sprite_casal, (0, 0))
+
         caixa_x, caixa_y = 50, config.ALTURA - 150
         caixa_largura, caixa_altura = config.LARGURA - 100, 100
+        
         pygame.draw.rect(tela, config.COR_CAIXA, (caixa_x, caixa_y, caixa_largura, caixa_altura))
         pygame.draw.rect(tela, config.COR_TEXTO, (caixa_x, caixa_y, caixa_largura, caixa_altura), 3)
 
-        texto_fala = fonte.render("Vocês: 'Fique bonzinho, deixamos um sachê pra você.'", True, config.COR_TEXTO)
-        texto_dica = fonte.render("[Pressione ENTER para fechar a porta]", True, (150, 150, 150))
+        texto_fala = fonte.render("Vocês: 'Bom, vamos sair. Coma a sua comida, se comporte.'", True, config.COR_TEXTO)
+        texto_dica = fonte.render("[Pressione ESPAÇO para fechar a porta]", True, (150, 150, 150))
         
         tela.blit(texto_fala, (caixa_x + 20, caixa_y + 20))
         tela.blit(texto_dica, (caixa_x + 20, caixa_y + 60))
 
-        if teclas[pygame.K_RETURN]:
+        if teclas[pygame.K_SPACE]: 
             estado_jogo = "JOGANDO"
+            mensagem_sistema = "Objetivo: Coma a sua comida."
 
     # ==========================================
-    # ESTADO 1: O CAOS COMEÇA (JOGANDO)
+    # ESTADO 1: JOGANDO
     # ==========================================
     elif estado_jogo == "JOGANDO":
         andando = False
+        dx, dy = 0, 0
         
-        # Movimentação e atualização da direção
-        if teclas[pygame.K_LEFT] or teclas[pygame.K_a]: 
-            gato_x -= velocidade
-            direcao_atual = 1 # Linha 1 do Sprite: Esquerda
-            andando = True
-        elif teclas[pygame.K_RIGHT] or teclas[pygame.K_d]: 
-            gato_x += velocidade
-            direcao_atual = 2 # Linha 2 do Sprite: Direita
-            andando = True
-        elif teclas[pygame.K_UP] or teclas[pygame.K_w]: 
-            gato_y -= velocidade
-            direcao_atual = 3 # Linha 3 do Sprite: Cima
-            andando = True
-        elif teclas[pygame.K_DOWN] or teclas[pygame.K_s]: 
-            gato_y += velocidade
-            direcao_atual = 0 # Linha 0 do Sprite: Baixo
-            andando = True
+        if teclas[pygame.K_LEFT] or teclas[pygame.K_a]: dx = -velocidade; direcao_atual = 1; andando = True
+        elif teclas[pygame.K_RIGHT] or teclas[pygame.K_d]: dx = velocidade; direcao_atual = 2; andando = True
+        elif teclas[pygame.K_UP] or teclas[pygame.K_w]: dy = -velocidade; direcao_atual = 3; andando = True
+        elif teclas[pygame.K_DOWN] or teclas[pygame.K_s]: dy = velocidade; direcao_atual = 0; andando = True
 
-        # Controle da velocidade da animação (troca de frame)
         if andando:
+            hitbox_teste = pygame.Rect(gato_x + dx, gato_y + dy, tamanho_gato, tamanho_gato)
+            bateu_parede = False
+            
+            if hitbox_teste.left < 0 or hitbox_teste.right > config.LARGURA or hitbox_teste.top < 40 or hitbox_teste.bottom > config.ALTURA:
+                bateu_parede = True
+            for movel in moveis_destrutiveis:
+                if hitbox_teste.colliderect(movel[0]):
+                    bateu_parede = True
+                    break
+            
+            if not bateu_parede:
+                gato_x += dx
+                gato_y += dy
+
             contador_animacao += 1
-            if contador_animacao >= 10: # A cada 10 ticks, muda o passinho
-                frame_atual = (frame_atual + 1) % 3 # Fica variando entre 0, 1 e 2
+            if contador_animacao >= 10: 
+                frame_atual = (frame_atual + 1) % 3
                 contador_animacao = 0
         else:
-            # Se não estiver andando, volta para o frame 0 (parado)
             frame_atual = 0
 
-        # LÓGICA DE COLISÃO E CRESCIMENTO
         hitbox_gato = pygame.Rect(gato_x, gato_y, tamanho_gato, tamanho_gato)
-
+        # Colisão com a comida (agora maior)
         if hitbox_gato.colliderect(comida):
             score += 10
             tamanho_gato += 2
             comida = gerar_comida()
             
-            # Transição APÓS 1 COMIDA
             if tamanho_gato >= 32:
                 estado_jogo = "GORDINHO"
                 velocidade = 4
+                mensagem_sistema = "Isso não é o suficiente. Coma mais!" 
 
-        pygame.draw.rect(tela, config.COR_COMIDA, comida)
+        # Desenha a imagem do sachê
+        tela.blit(img_comida, comida.topleft)
         
         imagem_atual = animacoes_gato_magro[direcao_atual][frame_atual]
-        
-        # ==========================================
-        # LIFTING VISUAL (CORRIGIDO)
-        # ==========================================
         proporcao = imagem_atual.get_width() / imagem_atual.get_height()
         nova_altura = int(tamanho_gato * 2) 
         nova_largura = int(nova_altura * proporcao)
         imagem_atual = pygame.transform.scale(imagem_atual, (nova_largura, nova_altura))
         
-        # Centraliza o gato no hitbox invisível
         pos_x = gato_x + (tamanho_gato // 2) - (nova_largura // 2)
         pos_y = gato_y + (tamanho_gato // 2) - (nova_altura // 2)
         tela.blit(imagem_atual, (pos_x, pos_y))
@@ -214,17 +274,28 @@ while True:
     # ==========================================
     elif estado_jogo == "GORDINHO":
         andando = False
+        dx, dy = 0, 0
         
-        if teclas[pygame.K_LEFT] or teclas[pygame.K_a]: 
-            gato_x -= velocidade; direcao_atual = 1; andando = True
-        elif teclas[pygame.K_RIGHT] or teclas[pygame.K_d]: 
-            gato_x += velocidade; direcao_atual = 2; andando = True
-        elif teclas[pygame.K_UP] or teclas[pygame.K_w]: 
-            gato_y -= velocidade; direcao_atual = 3; andando = True
-        elif teclas[pygame.K_DOWN] or teclas[pygame.K_s]: 
-            gato_y += velocidade; direcao_atual = 0; andando = True
+        if teclas[pygame.K_LEFT] or teclas[pygame.K_a]: dx = -velocidade; direcao_atual = 1; andando = True
+        elif teclas[pygame.K_RIGHT] or teclas[pygame.K_d]: dx = velocidade; direcao_atual = 2; andando = True
+        elif teclas[pygame.K_UP] or teclas[pygame.K_w]: dy = -velocidade; direcao_atual = 3; andando = True
+        elif teclas[pygame.K_DOWN] or teclas[pygame.K_s]: dy = velocidade; direcao_atual = 0; andando = True
 
         if andando:
+            hitbox_teste = pygame.Rect(gato_x + dx, gato_y + dy, tamanho_gato, tamanho_gato)
+            bateu_parede = False
+            
+            if hitbox_teste.left < 0 or hitbox_teste.right > config.LARGURA or hitbox_teste.top < 40 or hitbox_teste.bottom > config.ALTURA:
+                bateu_parede = True
+            for movel in moveis_destrutiveis:
+                if hitbox_teste.colliderect(movel[0]):
+                    bateu_parede = True
+                    break
+            
+            if not bateu_parede:
+                gato_x += dx
+                gato_y += dy
+
             contador_animacao += 1
             if contador_animacao >= 12: 
                 frame_atual = (frame_atual + 1) % 3
@@ -238,16 +309,14 @@ while True:
             tamanho_gato += 2
             comida = gerar_comida()
             
-            # Transição APÓS 2 COMIDAS (Tamanho vai para 34)
             if tamanho_gato >= 34:
                 estado_jogo = "OBESO"
                 velocidade = 2 
+                mensagem_sistema = "Coma MAIS E MAIS!" 
 
-        pygame.draw.rect(tela, config.COR_COMIDA, comida)
+        tela.blit(img_comida, comida.topleft)
         
         imagem_atual = animacoes_gato_gordinho[direcao_atual][frame_atual] 
-        
-        # LIFTING VISUAL (CORRIGIDO)
         proporcao = imagem_atual.get_width() / imagem_atual.get_height()
         nova_altura = int(tamanho_gato * 2) 
         nova_largura = int(nova_altura * proporcao)
@@ -258,24 +327,34 @@ while True:
         tela.blit(imagem_atual, (pos_x, pos_y))
 
     # ==========================================
-    # ESTADO 3: GATO OBESO (Quase explodindo)
+    # ESTADO 3: GATO OBESO
     # ==========================================
     elif estado_jogo == "OBESO":
         andando = False
+        dx, dy = 0, 0
         
-        # --- Ajuste das direções invertidas ---
-        if teclas[pygame.K_LEFT] or teclas[pygame.K_a]: 
-            gato_x -= velocidade; direcao_atual = 2; andando = True # Esquerda agora é 2
-        elif teclas[pygame.K_RIGHT] or teclas[pygame.K_d]: 
-            gato_x += velocidade; direcao_atual = 1; andando = True # Direita agora é 1
-        elif teclas[pygame.K_UP] or teclas[pygame.K_w]: 
-            gato_y -= velocidade; direcao_atual = 3; andando = True
-        elif teclas[pygame.K_DOWN] or teclas[pygame.K_s]: 
-            gato_y += velocidade; direcao_atual = 0; andando = True
+        if teclas[pygame.K_LEFT] or teclas[pygame.K_a]: dx = -velocidade; direcao_atual = 2; andando = True 
+        elif teclas[pygame.K_RIGHT] or teclas[pygame.K_d]: dx = velocidade; direcao_atual = 1; andando = True 
+        elif teclas[pygame.K_UP] or teclas[pygame.K_w]: dy = -velocidade; direcao_atual = 3; andando = True
+        elif teclas[pygame.K_DOWN] or teclas[pygame.K_s]: dy = velocidade; direcao_atual = 0; andando = True
 
         if andando:
+            hitbox_teste = pygame.Rect(gato_x + dx, gato_y + dy, tamanho_gato, tamanho_gato)
+            bateu_parede = False
+            
+            if hitbox_teste.left < 0 or hitbox_teste.right > config.LARGURA or hitbox_teste.top < 40 or hitbox_teste.bottom > config.ALTURA:
+                bateu_parede = True
+            for movel in moveis_destrutiveis:
+                if hitbox_teste.colliderect(movel[0]):
+                    bateu_parede = True
+                    break
+            
+            if not bateu_parede:
+                gato_x += dx
+                gato_y += dy
+
             contador_animacao += 1
-            if contador_animacao >= 12: # <-- Diminuído de 18 para 12! Passos mais rápidos
+            if contador_animacao >= 12: 
                 frame_atual = (frame_atual + 1) % 3
                 contador_animacao = 0
         else:
@@ -287,116 +366,147 @@ while True:
             tamanho_gato += 2
             comida = gerar_comida()
             
-            # Transição APÓS 3 COMIDAS (Tamanho vai para 36)
             if tamanho_gato >= 36:
                 estado_jogo = "BOLOTA"
+                velocidade = 6 
+                mensagem_sistema = "MASSA CRÍTICA! Obliteração da casa ativada." 
 
-        pygame.draw.rect(tela, config.COR_COMIDA, comida)
+        tela.blit(img_comida, comida.topleft)
         
         imagem_atual = animacoes_gato_obeso[direcao_atual][frame_atual] 
-        
-        # LIFTING VISUAL (CORRIGIDO E CENTRALIZADO)
         proporcao = imagem_atual.get_width() / imagem_atual.get_height()
         nova_altura = int(tamanho_gato * 2.2) 
         nova_largura = int(nova_altura * proporcao)
         imagem_atual = pygame.transform.scale(imagem_atual, (nova_largura, nova_altura))
         
-        # Centraliza perfeitamente o gato no hitbox para ele crescer a partir do meio
         pos_x = gato_x + (tamanho_gato // 2) - (nova_largura // 2)
         pos_y = gato_y + (tamanho_gato // 2) - (nova_altura // 2)
         tela.blit(imagem_atual, (pos_x, pos_y))
 
     # ==========================================
-    # === ESTADO 4: BOLOTA (Rotação Nativa Direcional Perfeita) ===
+    # ESTADO 4: BOLOTA
     # ==========================================
     elif estado_jogo == "BOLOTA":
         andando = False
-        andando_horizontal = False # Flag para prioridade de giro
+        andando_horizontal = False 
+        dx, dy = 0, 0
         
-        # MOVIMENTAÇÃO E LÓGICA DE GIRO
         if teclas[pygame.K_LEFT] or teclas[pygame.K_a]: 
-            gato_x -= velocidade
-            andando = True
-            andando_horizontal = True
-            # === GIRAR PARA ESQUERDA ===
-            # Incrementa o ângulo (anti-horário)
-            angulo_rotacao += velocidade_giro
-            
+            dx = -velocidade; andando = True; andando_horizontal = True; angulo_rotacao += velocidade_giro
         elif teclas[pygame.K_RIGHT] or teclas[pygame.K_d]: 
-            gato_x += velocidade
-            andando = True
-            andando_horizontal = True
-            # === GIRAR PARA DIREITA ===
-            # Decrementa o ângulo (horário)
-            angulo_rotacao -= velocidade_giro
+            dx = velocidade; andando = True; andando_horizontal = True; angulo_rotacao -= velocidade_giro
 
-        # Se não estiver andando para os lados, mas estiver subindo/descendo, 
-        # ele continua girando (vamos manter o giro anti-horário padrão aqui)
         if not andando_horizontal:
             if teclas[pygame.K_UP] or teclas[pygame.K_w]: 
-                gato_y -= velocidade; andando = True; angulo_rotacao += velocidade_giro
+                dy = -velocidade; andando = True; angulo_rotacao += velocidade_giro
             elif teclas[pygame.K_DOWN] or teclas[pygame.K_s]: 
-                gato_y += velocidade; andando = True; angulo_rotacao += velocidade_giro
+                dy = velocidade; andando = True; angulo_rotacao += velocidade_giro
 
-        # Mantém o ângulo entre 0 e 359
         if angulo_rotacao >= 360: angulo_rotacao -= 360
         if angulo_rotacao < 0: angulo_rotacao += 360
 
-        # Lógica de Colisão com Móveis
+        hitbox_teste = pygame.Rect(gato_x + dx, gato_y + dy, tamanho_gato, tamanho_gato)
+        if not (hitbox_teste.left < 0 or hitbox_teste.right > config.LARGURA or hitbox_teste.top < 40 or hitbox_teste.bottom > config.ALTURA):
+            gato_x += dx
+            gato_y += dy
+
         hitbox_bolota = pygame.Rect(gato_x, gato_y, tamanho_gato, tamanho_gato)
+        
         for movel in moveis_destrutiveis[:]: 
-            if hitbox_bolota.colliderect(movel):
+            if hitbox_bolota.colliderect(movel[0]): 
+                rect_movel, textura_movel = movel 
                 moveis_destrutiveis.remove(movel)
                 score += 50
+                tamanho_gato += 2 
                 velocidade += 1 
-                
-        # Desenha os Móveis restantes
-        for movel in moveis_destrutiveis:
-            pygame.draw.rect(tela, (139, 69, 19), movel) 
 
-        # ==========================================
-        # DESENHO DA BOLOTA GIRANDO CENTRALIZADA
-        # ==========================================
+                try:
+                    som_destruicao.play()
+                except:
+                    pass
+
+                surf_movel = textura_movel.copy()
+                vx_explosao = random.choice([-20, -15, 15, 20])
+                vy_explosao = random.choice([-20, -15, 15, 20])
+                forca_giro = random.choice([-30, -25, 25, 30])
+                
+                moveis_voando.append({
+                    'surface': surf_movel,
+                    'x': rect_movel.centerx,
+                    'y': rect_movel.centery,
+                    'vx': vx_explosao,
+                    'vy': vy_explosao,
+                    'angulo': 0,
+                    'giro': forca_giro
+                })
+                
+        for voando in moveis_voando[:]:
+            voando['x'] += voando['vx']
+            voando['y'] += voando['vy']
+            voando['angulo'] += voando['giro']
+            
+            surf_girada = pygame.transform.rotate(voando['surface'], voando['angulo'])
+            rect_girado = surf_girada.get_rect(center=(voando['x'], voando['y']))
+            tela.blit(surf_girada, rect_girado.topleft)
+            
+            if (voando['x'] < -200 or voando['x'] > config.LARGURA + 200 or 
+                voando['y'] < -200 or voando['y'] > config.ALTURA + 200):
+                moveis_voando.remove(voando)
+                
+        if len(moveis_destrutiveis) == 0 and len(moveis_voando) == 0:
+            estado_jogo = "CORRUPCAO"
+
         proporcao = imagem_bolota_base.get_width() / imagem_bolota_base.get_height()
-        nova_altura = int(tamanho_gato * 2.2) # Escala proporcional da fase bolota
+        nova_altura = int(tamanho_gato * 2.2) 
         nova_largura = int(nova_altura * proporcao)
         imagem_escalada = pygame.transform.scale(imagem_bolota_base, (nova_largura, nova_altura))
         
-        # Gira a imagem redimensionada
         imagem_girada = pygame.transform.rotate(imagem_escalada, angulo_rotacao)
-        
-        # Centraliza exatamente no hitbox invisível do gato
         centro_x = gato_x + (tamanho_gato // 2)
         centro_y = gato_y + (tamanho_gato // 2)
         rect_girado = imagem_girada.get_rect(center=(centro_x, centro_y))
-        
-        # Desenha na tela!
         tela.blit(imagem_girada, rect_girado.topleft)
 
-        texto_alerta = fonte.render("ALERTA: MASSA CRÍTICA! [Aperte ESPAÇO para quebrar tudo]", True, config.COR_TEXTO)
-        tela.blit(texto_alerta, (20, 20))
+    # ==========================================
+    # ESTADO 5: CORRUPÇÃO
+    # ==========================================
+    elif estado_jogo == "CORRUPCAO":
+        cor_glitch = (random.randint(150, 255), random.randint(50, 255), random.randint(50, 255))
+        tela.fill(cor_glitch)
+        
+        txt1 = fonte.render("Você ficou TÃO GORDO E GRANDE...", True, (0, 0, 0))
+        txt2 = fonte.render("Que rompeu um terço do ESPAÇO-TEMPO!", True, (255, 255, 255))
+        txt3 = fonte.render("[Aperte ESPAÇO para seu destino final]", True, (50, 50, 50))
+        
+        tela.blit(txt1, (config.LARGURA//2 - txt1.get_width()//2, config.ALTURA//2 - 50))
+        tela.blit(txt2, (config.LARGURA//2 - txt2.get_width()//2, config.ALTURA//2))
+        tela.blit(txt3, (config.LARGURA//2 - txt3.get_width()//2, config.ALTURA//2 + 60))
 
         if teclas[pygame.K_SPACE]:
             estado_jogo = "FIM"
 
     # ==========================================
-    # ESTADO 3: TELA FINAL
+    # ESTADO 6: TELA FINAL
     # ==========================================
     elif estado_jogo == "FIM":
         tela.fill(config.COR_CAIXA) 
         
-        # 1. Posiciona e desenha a foto bem no centro da tela
         foto_rect = foto_casal.get_rect(center=(config.LARGURA // 2, config.ALTURA // 2))
         tela.blit(foto_casal, foto_rect.topleft)
 
-        # 2. Textos (Ajustados para ficar acima e abaixo da foto)
-        texto_final = fonte.render("Você quebrou o universo...", True, config.COR_TEXTO)
-        texto_sub = fonte.render("Feliz Dia dos Namorados pra nós, gatos gordos ❤️", True, (255, 105, 180))
+        texto_final = fonte.render("Você destruiu o espaço-tempo e foi parar em outra dimensão...", True, config.COR_TEXTO)
+        texto_sub = fonte.render("Onde vocês são dois gatos gordos! ❤️", True, (255, 105, 180))
         
-        # Texto em cima
         tela.blit(texto_final, (config.LARGURA//2 - texto_final.get_width()//2, foto_rect.top - 40))
-        # Texto embaixo
         tela.blit(texto_sub, (config.LARGURA//2 - texto_sub.get_width()//2, foto_rect.bottom + 20))
+
+    # ==========================================
+    # DESENHO DA BARRA DE MENSAGEM
+    # ==========================================
+    if estado_jogo in ["JOGANDO", "GORDINHO", "OBESO", "BOLOTA"]:
+        pygame.draw.rect(tela, (20, 20, 20), (0, 0, config.LARGURA, 40)) 
+        txt_obj = fonte_pequena.render(mensagem_sistema, True, (255, 215, 0)) 
+        tela.blit(txt_obj, (config.LARGURA//2 - txt_obj.get_width()//2, 10))
 
     pygame.display.flip()
     relogio.tick(config.FPS)
